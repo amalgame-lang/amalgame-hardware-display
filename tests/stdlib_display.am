@@ -1,0 +1,40 @@
+// Test the SSD1306 driver against a fake I2C bus (no hardware): it must
+// init, render to the framebuffer and stream it without crashing, and
+// actually push data bytes on Show().
+
+namespace Tests
+
+import Amalgame.Hal
+import Amalgame.Hardware.Display
+
+public class FakeI2c implements I2cBus {
+    private writes: int
+    public FakeI2c() { this.writes = 0 }
+    public bool WriteByte(addr: int, value: int) { return true }
+    public int  ReadByte(addr: int) { return 0 }
+    public bool WriteReg(addr: int, reg: int, value: int) { this.writes = this.writes + 1; return true }
+    public int  ReadReg(addr: int, reg: int) { return 0 }
+    public bool WriteBytes(addr: int, bytes: List<int>) { this.writes = this.writes + bytes.Count(); return true }
+    public List<int> ReadBytes(addr: int, count: int) { let l: List<int> = new List<int>(); return l }
+    public int Writes() { return this.writes }
+}
+
+public class Program {
+    public static void Main(string[] args) {
+        var fail: int = 0
+        let bus: FakeI2c = new FakeI2c()
+        let oled: Ssd1306 = new Ssd1306(bus, 0x3C)
+        oled.Begin()
+        oled.Clear()
+        oled.Pixel(0, 0, true)
+        oled.Pixel(127, 63, true)
+        oled.HLine(0, 10, 64)
+        oled.Rect(0, 16, 40, 20)
+        oled.Text(0, 24, "T:23.5C")
+        oled.Show()
+        // Show streams 1024 fb bytes (+ control bytes) → many writes.
+        if (bus.Writes() > 1000) { Console.WriteLine("[PASS] ssd1306 renders + streams (" + String_FromInt(bus.Writes()) + " bytes)") } else { Console.WriteLine("[FAIL] ssd1306 streamed only " + String_FromInt(bus.Writes())); fail = fail + 1 }
+
+        if (fail == 0) { Console.WriteLine("display: all good") }
+    }
+}

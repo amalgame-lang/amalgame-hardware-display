@@ -1,0 +1,208 @@
+namespace Amalgame.Hardware.Display
+
+// ── Amalgame.Hardware.Display — portable display drivers ──
+//
+// Written once against Amalgame.Hal, so the same driver runs on a
+// Raspberry Pi (amalgame-hardware-gpio backend) and on a future MCU
+// backend. v0.1 ships the SSD1306 128×64 mono OLED (I²C) — the most
+// common hobby display.
+//
+//     import Amalgame.Hardware          // I2c (the Pi backend)
+//     import Amalgame.Hardware.Display
+//
+//     let oled = new Ssd1306(new I2c(1), 0x3C)
+//     oled.Begin()
+//     oled.Clear()
+//     oled.Text(0, 0, "T:23.5C")
+//     oled.HLine(0, 10, 128)
+//     oled.Show()
+
+import Amalgame.Hal
+
+// SSD1306 128×64 monochrome OLED over I²C. Maintains a 1024-byte page
+// framebuffer in Amalgame; Show() streams it to the panel. The font
+// (Font5x7) currently covers digits, space and a few symbols/letters
+// used in readouts — full ASCII is a follow-up.
+public class Ssd1306 {
+    private bus:  I2cBus
+    private addr: int
+    private fb:   List<int>   // 1024 bytes: 8 pages × 128 columns
+
+    public Ssd1306(bus: I2cBus, addr: int) {
+        this.bus  = bus
+        this.addr = addr
+        this.fb   = new List<int>()
+        var i: int = 0
+        while (i < 1024) { this.fb.Add(0); i = i + 1 }
+    }
+
+    // Send one command byte (control byte 0x00 then the command).
+    private void Cmd(c: int) {
+        let _w: bool = this.bus.WriteReg(this.addr, 0, c)
+    }
+
+    // Standard 128×64 init + display on.
+    public void Begin() {
+        this.Cmd(0xAE)
+        this.Cmd(0xD5)  this.Cmd(0x80)
+        this.Cmd(0xA8)  this.Cmd(0x3F)
+        this.Cmd(0xD3)  this.Cmd(0x00)
+        this.Cmd(0x40)
+        this.Cmd(0x8D)  this.Cmd(0x14)
+        this.Cmd(0x20)  this.Cmd(0x00)
+        this.Cmd(0xA1)
+        this.Cmd(0xC8)
+        this.Cmd(0xDA)  this.Cmd(0x12)
+        this.Cmd(0x81)  this.Cmd(0xCF)
+        this.Cmd(0xD9)  this.Cmd(0xF1)
+        this.Cmd(0xDB)  this.Cmd(0x40)
+        this.Cmd(0xA4)
+        this.Cmd(0xA6)
+        this.Cmd(0xAF)
+    }
+
+    public bool IsPresent() {
+        // SSD1306 has no chip-id; a successful status read (non -1) is a
+        // decent liveness probe.
+        return this.bus.ReadByte(this.addr) != (0 - 1)
+    }
+
+    // ── framebuffer primitives ──
+    public void Clear() {
+        var i: int = 0
+        while (i < 1024) { this.fb.Set(i, 0); i = i + 1 }
+    }
+
+    public void Pixel(x: int, y: int, on: bool) {
+        if (x < 0 || x > 127 || y < 0 || y > 63) { return }
+        let idx: int = (y / 8) * 128 + x
+        let bit: int = y % 8
+        let b: int = this.fb.Get(idx)
+        if (on) {
+            this.fb.Set(idx, this.SetBit(b, bit))
+        } else {
+            this.fb.Set(idx, this.ClearBit(b, bit))
+        }
+    }
+
+    public void HLine(x: int, y: int, w: int) {
+        var i: int = 0
+        while (i < w) { this.Pixel(x + i, y, true); i = i + 1 }
+    }
+    public void VLine(x: int, y: int, h: int) {
+        var i: int = 0
+        while (i < h) { this.Pixel(x, y + i, true); i = i + 1 }
+    }
+    public void Rect(x: int, y: int, w: int, h: int) {
+        this.HLine(x, y, w)
+        this.HLine(x, y + h - 1, w)
+        this.VLine(x, y, h)
+        this.VLine(x + w - 1, y, h)
+    }
+
+    // Draw text at pixel (x,y), 6px advance per glyph (5px + 1 gap).
+    public void Text(x: int, y: int, s: string) {
+        var cx: int = x
+        let n: int = String_Length(s)
+        var i: int = 0
+        while (i < n) {
+            let ch: string = String_Substring(s, i, 1)
+            this.Glyph(cx, y, ch)
+            cx = cx + 6
+            i = i + 1
+        }
+    }
+
+    // Stream the framebuffer to the panel.
+    public void Show() {
+        this.Cmd(0x21)  this.Cmd(0)    this.Cmd(127)   // column range
+        this.Cmd(0x22)  this.Cmd(0)    this.Cmd(7)     // page range
+        var i: int = 0
+        while (i < 1024) {
+            // chunk: control byte 0x40 (data) + up to 16 framebuffer bytes
+            let chunk: List<int> = new List<int>()
+            chunk.Add(0x40)
+            var j: int = 0
+            while (j < 16 && i < 1024) {
+                chunk.Add(this.fb.Get(i))
+                i = i + 1
+                j = j + 1
+            }
+            let _w: bool = this.bus.WriteBytes(this.addr, chunk)
+        }
+    }
+
+    // ── helpers ──
+    private int SetBit(b: int, bit: int) {
+        var mask: int = 1
+        var k: int = 0
+        while (k < bit) { mask = mask * 2; k = k + 1 }
+        if ((b / mask) % 2 == 1) { return b }
+        return b + mask
+    }
+    private int ClearBit(b: int, bit: int) {
+        var mask: int = 1
+        var k: int = 0
+        while (k < bit) { mask = mask * 2; k = k + 1 }
+        if ((b / mask) % 2 == 0) { return b }
+        return b - mask
+    }
+
+    // Render one glyph's 5 columns (column-major 5×7 font) at (x,y).
+    private void Glyph(x: int, y: int, ch: string) {
+        let cols: List<int> = Font5x7.Columns(ch)
+        var c: int = 0
+        while (c < 5) {
+            let colByte: int = cols.Get(c)
+            var r: int = 0
+            while (r < 7) {
+                if ((colByte / (this.Pow2(r))) % 2 == 1) {
+                    this.Pixel(x + c, y + r, true)
+                }
+                r = r + 1
+            }
+            c = c + 1
+        }
+    }
+    private int Pow2(n: int) {
+        var v: int = 1
+        var k: int = 0
+        while (k < n) { v = v * 2; k = k + 1 }
+        return v
+    }
+}
+
+// Compact 5×7 column-major font (LSB = top row). Covers digits, space
+// and the symbols/letters common in readouts; unknown chars render
+// blank. Full ASCII is a planned follow-up.
+public class Font5x7 {
+    public static List<int> Columns(ch: string) {
+        let g: List<int> = new List<int>()
+        if (ch == "0") { return Font5x7.Make(0x3E, 0x51, 0x49, 0x45, 0x3E) }
+        if (ch == "1") { return Font5x7.Make(0x00, 0x42, 0x7F, 0x40, 0x00) }
+        if (ch == "2") { return Font5x7.Make(0x42, 0x61, 0x51, 0x49, 0x46) }
+        if (ch == "3") { return Font5x7.Make(0x21, 0x41, 0x45, 0x4B, 0x31) }
+        if (ch == "4") { return Font5x7.Make(0x18, 0x14, 0x12, 0x7F, 0x10) }
+        if (ch == "5") { return Font5x7.Make(0x27, 0x45, 0x45, 0x45, 0x39) }
+        if (ch == "6") { return Font5x7.Make(0x3C, 0x4A, 0x49, 0x49, 0x30) }
+        if (ch == "7") { return Font5x7.Make(0x01, 0x71, 0x09, 0x05, 0x03) }
+        if (ch == "8") { return Font5x7.Make(0x36, 0x49, 0x49, 0x49, 0x36) }
+        if (ch == "9") { return Font5x7.Make(0x06, 0x49, 0x49, 0x29, 0x1E) }
+        if (ch == ".") { return Font5x7.Make(0x00, 0x60, 0x60, 0x00, 0x00) }
+        if (ch == "-") { return Font5x7.Make(0x08, 0x08, 0x08, 0x08, 0x08) }
+        if (ch == ":") { return Font5x7.Make(0x00, 0x36, 0x36, 0x00, 0x00) }
+        if (ch == "%") { return Font5x7.Make(0x62, 0x64, 0x08, 0x13, 0x23) }
+        if (ch == "C") { return Font5x7.Make(0x3E, 0x41, 0x41, 0x41, 0x22) }
+        if (ch == "F") { return Font5x7.Make(0x7F, 0x09, 0x09, 0x09, 0x01) }
+        if (ch == "H") { return Font5x7.Make(0x7F, 0x08, 0x08, 0x08, 0x7F) }
+        if (ch == "P") { return Font5x7.Make(0x7F, 0x09, 0x09, 0x09, 0x06) }
+        if (ch == "T") { return Font5x7.Make(0x01, 0x01, 0x7F, 0x01, 0x01) }
+        // unknown / space → blank
+        return Font5x7.Make(0x00, 0x00, 0x00, 0x00, 0x00)
+    }
+    private static List<int> Make(a: int, b: int, c: int, d: int, e: int) {
+        let l: List<int> = new List<int>()
+        l.Add(a)  l.Add(b)  l.Add(c)  l.Add(d)  l.Add(e)
+        return l
+    }
+}
