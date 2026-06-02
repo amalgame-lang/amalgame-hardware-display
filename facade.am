@@ -347,3 +347,100 @@ public class Max7219 {
         this.Reg(pos + 1, v)
     }
 }
+
+// TM1637 — 4-digit 7-segment display (cheap clock modules) on a 2-wire
+// bit-banged bus (CLK + DIO). Paced by a Clock. ShowNumber renders a
+// 0..9999 integer; the optional colon lights the middle ':'.
+//
+//     let d = new Tm1637(new GpioOut(5), new GpioOut(6), new SysClock())
+//     d.SetBrightness(5)
+//     d.ShowNumber(1234, true)         // 12:34
+public class Tm1637 {
+    private clk:    DigitalOut
+    private dio:    DigitalOut
+    private wait:   Clock
+    private bright: int
+
+    public Tm1637(clk: DigitalOut, dio: DigitalOut, wait: Clock) {
+        this.clk = clk
+        this.dio = dio
+        this.wait = wait
+        this.bright = 7
+        this.clk.High()
+        this.dio.High()
+    }
+
+    public void SetBrightness(v: int) {
+        var b: int = v
+        if (b < 0) { b = 0 }
+        if (b > 7) { b = 7 }
+        this.bright = b
+    }
+
+    private void Tick() { this.wait.DelayUs(3) }
+    private void Start() { this.dio.High(); this.clk.High(); this.Tick(); this.dio.Low(); this.Tick(); this.clk.Low(); this.Tick() }
+    private void Stop()  { this.clk.Low(); this.Tick(); this.dio.Low(); this.Tick(); this.clk.High(); this.Tick(); this.dio.High(); this.Tick() }
+
+    // Write one byte LSB-first; clock a 9th (ack) bit (ack ignored — we
+    // only have a DigitalOut for DIO, so we hold it high during ack).
+    private void WriteByte(b: int) {
+        var v: int = b
+        var i: int = 0
+        while (i < 8) {
+            this.clk.Low()
+            this.Tick()
+            if (v % 2 == 1) { this.dio.High() } else { this.dio.Low() }
+            v = v / 2
+            this.Tick()
+            this.clk.High()
+            this.Tick()
+            i = i + 1
+        }
+        // ack clock
+        this.clk.Low()
+        this.dio.High()
+        this.Tick()
+        this.clk.High()
+        this.Tick()
+        this.clk.Low()
+        this.Tick()
+    }
+
+    // Push 4 raw segment bytes (bit7 of a byte = colon on digit 1).
+    public void ShowRaw(s0: int, s1: int, s2: int, s3: int) {
+        this.Start(); this.WriteByte(0x40); this.Stop()              // auto-increment write
+        this.Start(); this.WriteByte(0xC0)                          // address 0
+        this.WriteByte(s0); this.WriteByte(s1); this.WriteByte(s2); this.WriteByte(s3)
+        this.Stop()
+        this.Start(); this.WriteByte(0x88 + this.bright); this.Stop() // display on + brightness
+    }
+
+    public void Clear() { this.ShowRaw(0, 0, 0, 0) }
+
+    // Show a 0..9999 integer (right-aligned, leading zeros). `colon`
+    // lights the central ':' (handy for clocks).
+    public void ShowNumber(n: int, colon: bool) {
+        var v: int = n
+        if (v < 0) { v = 0 }
+        if (v > 9999) { v = 9999 }
+        var s1: int = Tm1637.Seg((v / 100) % 10)
+        if (colon) { s1 = s1 + 128 }
+        this.ShowRaw(Tm1637.Seg((v / 1000) % 10), s1,
+                     Tm1637.Seg((v / 10) % 10), Tm1637.Seg(v % 10))
+    }
+
+    // 7-segment patterns for 0..9.
+    private static int Seg(d: int) {
+        if (d == 0) { return 0x3F }
+        if (d == 1) { return 0x06 }
+        if (d == 2) { return 0x5B }
+        if (d == 3) { return 0x4F }
+        if (d == 4) { return 0x66 }
+        if (d == 5) { return 0x6D }
+        if (d == 6) { return 0x7D }
+        if (d == 7) { return 0x07 }
+        if (d == 8) { return 0x7F }
+        if (d == 9) { return 0x6F }
+        return 0
+    }
+}

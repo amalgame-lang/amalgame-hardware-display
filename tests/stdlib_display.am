@@ -34,6 +34,16 @@ public class FakeSpi implements SpiBus {
     public int Xfers() { return this.xfers }
 }
 
+public class FakeOut implements DigitalOut {
+    private edges: int
+    public FakeOut() { this.edges = 0 }
+    public void Write(level: int) { this.edges = this.edges + 1 }
+    public void High() { this.edges = this.edges + 1 }
+    public void Low()  { this.edges = this.edges + 1 }
+    public void Toggle() { this.edges = this.edges + 1 }
+    public int Edges() { return this.edges }
+}
+
 public class Program {
     public static void Main(string[] args) {
         var fail: int = 0
@@ -64,6 +74,13 @@ public class Program {
         m.SetIntensity(5)
         m.SetRow(0, 0x3C)
         if (sp.Xfers() > 0) { Console.WriteLine("[PASS] max7219 spi (" + String_FromInt(sp.Xfers()) + " words)") } else { Console.WriteLine("[FAIL] max7219 no spi"); fail = fail + 1 }
+
+        // TM1637 4-digit clock display (2-wire bit-bang).
+        let tclk: FakeOut = new FakeOut()
+        let tdio: FakeOut = new FakeOut()
+        let seg: Tm1637 = new Tm1637(tclk, tdio, new FakeClock())
+        seg.ShowNumber(1234, true)
+        if (tclk.Edges() > 0 && tdio.Edges() > 0) { Console.WriteLine("[PASS] tm1637 driven (" + String_FromInt(tclk.Edges()) + " clk edges)") } else { Console.WriteLine("[FAIL] tm1637 not driven"); fail = fail + 1 }
 
         if (fail == 0) { Console.WriteLine("display: all good") }
     }
