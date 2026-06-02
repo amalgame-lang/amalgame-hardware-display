@@ -206,3 +206,86 @@ public class Font5x7 {
         return l
     }
 }
+
+// Tiny FFI: ASCII byte of a 1-char string (no AM primitive for it).
+@c {
+    static int64_t amdisp_ord(code_string s) {
+        return (s && s[0]) ? (int64_t)(unsigned char) s[0] : 0;
+    }
+}
+
+// HD44780 character LCD (16×2 / 20×4) behind a PCF8574 I²C backpack —
+// the classic blue/green text LCD. Backpack bit map: P0=RS, P1=RW,
+// P2=EN, P3=backlight, P4..P7=D4..D7 (4-bit mode). Needs a Clock for
+// the controller's init/clear timing.
+//
+//     let lcd = new Lcd1602(new I2c(1), 0x27, new SysClock())
+//     lcd.SetCursor(0, 0)
+//     lcd.Print("Amalgame!")
+public class Lcd1602 {
+    private bus:       I2cBus
+    private addr:      int
+    private clk:       Clock
+    private backlight: int   // 8 = on, 0 = off
+
+    public Lcd1602(bus: I2cBus, addr: int, clk: Clock) {
+        this.bus = bus
+        this.addr = addr
+        this.clk = clk
+        this.backlight = 8
+        this.Init()
+    }
+
+    // Write one PCF8574 byte (data nibble already positioned) with EN
+    // pulsed high→low so the HD44780 latches it.
+    private void Send4(nibble: int, rs: int) {
+        let base: int = nibble * 16 + rs + this.backlight
+        let _1: bool = this.bus.WriteByte(this.addr, base + 4)   // EN high
+        this.clk.DelayUs(1)
+        let _2: bool = this.bus.WriteByte(this.addr, base)       // EN low
+        this.clk.DelayUs(50)
+    }
+    private void Cmd(c: int)  { this.Send4(c / 16, 0); this.Send4(c % 16, 0) }
+    private void DataByte(d: int) { this.Send4(d / 16, 1); this.Send4(d % 16, 1) }
+
+    private void Init() {
+        this.clk.DelayMs(50)
+        this.Send4(3, 0); this.clk.DelayMs(5)
+        this.Send4(3, 0); this.clk.DelayUs(150)
+        this.Send4(3, 0); this.clk.DelayUs(150)
+        this.Send4(2, 0)            // switch to 4-bit
+        this.Cmd(0x28)             // 4-bit, 2-line, 5x8
+        this.Cmd(0x0C)             // display on, cursor off
+        this.Cmd(0x06)             // entry: increment, no shift
+        this.Clear()
+    }
+
+    public void Clear() { this.Cmd(0x01); this.clk.DelayMs(2) }
+    public void Home()  { this.Cmd(0x02); this.clk.DelayMs(2) }
+
+    // col 0-based, row 0 or 1 (or up to 3 on 20×4).
+    public void SetCursor(col: int, row: int) {
+        var off: int = col
+        if (row == 1) { off = col + 0x40 }
+        if (row == 2) { off = col + 0x14 }
+        if (row == 3) { off = col + 0x54 }
+        this.Cmd(0x80 + off)
+    }
+
+    public void Print(s: string) {
+        let n: int = String_Length(s)
+        var i: int = 0
+        while (i < n) {
+            let ch: string = String_Substring(s, i, 1)
+            var code: int = 0
+            @c { code = (i64) amdisp_ord(ch); }
+            this.DataByte(code)
+            i = i + 1
+        }
+    }
+
+    public void SetBacklight(on: bool) {
+        if (on) { this.backlight = 8 } else { this.backlight = 0 }
+        let _w: bool = this.bus.WriteByte(this.addr, this.backlight)
+    }
+}

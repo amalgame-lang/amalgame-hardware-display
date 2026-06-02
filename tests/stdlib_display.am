@@ -10,13 +10,21 @@ import Amalgame.Hardware.Display
 public class FakeI2c implements I2cBus {
     private writes: int
     public FakeI2c() { this.writes = 0 }
-    public bool WriteByte(addr: int, value: int) { return true }
+    public bool WriteByte(addr: int, value: int) { this.writes = this.writes + 1; return true }
     public int  ReadByte(addr: int) { return 0 }
     public bool WriteReg(addr: int, reg: int, value: int) { this.writes = this.writes + 1; return true }
     public int  ReadReg(addr: int, reg: int) { return 0 }
     public bool WriteBytes(addr: int, bytes: List<int>) { this.writes = this.writes + bytes.Count(); return true }
     public List<int> ReadBytes(addr: int, count: int) { let l: List<int> = new List<int>(); return l }
     public int Writes() { return this.writes }
+}
+
+public class FakeClock implements Clock {
+    public FakeClock() { }
+    public void DelayMs(ms: int) { }
+    public void DelayUs(us: int) { }
+    public int Millis() { return 0 }
+    public int Micros() { return 0 }
 }
 
 public class Program {
@@ -34,6 +42,14 @@ public class Program {
         oled.Show()
         // Show streams 1024 fb bytes (+ control bytes) → many writes.
         if (bus.Writes() > 1000) { Console.WriteLine("[PASS] ssd1306 renders + streams (" + String_FromInt(bus.Writes()) + " bytes)") } else { Console.WriteLine("[FAIL] ssd1306 streamed only " + String_FromInt(bus.Writes())); fail = fail + 1 }
+
+        // HD44780 character LCD via I2C backpack.
+        let lbus: FakeI2c = new FakeI2c()
+        let lcd: Lcd1602 = new Lcd1602(lbus, 0x27, new FakeClock())
+        lcd.Clear()
+        lcd.SetCursor(0, 0)
+        lcd.Print("Amalgame")
+        if (lbus.Writes() > 0) { Console.WriteLine("[PASS] lcd1602 init + print (" + String_FromInt(lbus.Writes()) + " writes)") } else { Console.WriteLine("[FAIL] lcd1602 no writes"); fail = fail + 1 }
 
         if (fail == 0) { Console.WriteLine("display: all good") }
     }

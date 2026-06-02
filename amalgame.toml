@@ -6,20 +6,22 @@
 #   Ssd1306  — 128×64 mono OLED over I²C (I2cBus). Framebuffer + pixels,
 #              lines, rects, and 5×7 text (Show() streams to the panel).
 #   Font5x7  — compact column-major font used by Ssd1306.Text.
+#   Lcd1602  — HD44780 character LCD via PCF8574 I²C backpack (v0.2).
 #
-# Pure Amalgame; no C, no system dependency (the backend brings those).
+# A tiny @c helper provides char→byte (no AM primitive); otherwise
+# pure Amalgame, no system dependency.
 
 [package]
 name              = "amalgame-hardware-display"
-version           = "0.1.0"
+version           = "0.2.0"
 license           = "Apache-2.0"
-description       = "Portable display drivers (SSD1306 128x64 OLED over I2C, framebuffer + 5x7 text) over Amalgame.Hal — one driver, runs on Raspberry Pi and future MCU backends."
+description       = "Portable display drivers (SSD1306 OLED framebuffer+text, HD44780 character LCD via I2C backpack) over Amalgame.Hal — one driver, runs on Raspberry Pi and future MCU backends."
 authors           = ["Bastien Mouget"]
 required-amalgame = ">=0.8.72"
 schema-version    = 1
 
 [stdlib]
-classes   = ["Ssd1306", "Font5x7"]
+classes   = ["Ssd1306", "Font5x7", "Lcd1602"]
 header    = "facade-stub.h"
 namespace = "Amalgame.Hardware.Display"
 facade    = "facade.am"
