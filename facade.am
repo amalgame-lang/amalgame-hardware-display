@@ -207,13 +207,6 @@ public class Font5x7 {
     }
 }
 
-// Tiny FFI: ASCII byte of a 1-char string (no AM primitive for it).
-@c {
-    static int64_t amdisp_ord(code_string s) {
-        return (s && s[0]) ? (int64_t)(unsigned char) s[0] : 0;
-    }
-}
-
 // HD44780 character LCD (16×2 / 20×4) behind a PCF8574 I²C backpack —
 // the classic blue/green text LCD. Backpack bit map: P0=RS, P1=RW,
 // P2=EN, P3=backlight, P4..P7=D4..D7 (4-bit mode). Needs a Clock for
@@ -277,11 +270,18 @@ public class Lcd1602 {
         var i: int = 0
         while (i < n) {
             let ch: string = String_Substring(s, i, 1)
-            var code: int = 0
-            @c { code = (i64) amdisp_ord(ch); }
-            this.DataByte(code)
+            this.DataByte(Lcd1602.Ord(ch))
             i = i + 1
         }
+    }
+
+    // ASCII code of a printable 1-char string (0x20..0x7E), pure
+    // Amalgame via a lookup of the printable set. Unknown → space.
+    private static int Ord(ch: string) {
+        let printable: string = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+        let idx: int = String_IndexOf(printable, ch)
+        if (idx < 0) { return 32 }
+        return 32 + idx
     }
 
     public void SetBacklight(on: bool) {

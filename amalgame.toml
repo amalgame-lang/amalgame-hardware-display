@@ -8,12 +8,11 @@
 #   Font5x7  — compact column-major font used by Ssd1306.Text.
 #   Lcd1602  — HD44780 character LCD via PCF8574 I²C backpack (v0.2).
 #
-# A tiny @c helper provides char→byte (no AM primitive); otherwise
-# pure Amalgame, no system dependency.
+# Pure Amalgame; no C, no system dependency (the backend brings those).
 
 [package]
 name              = "amalgame-hardware-display"
-version           = "0.2.0"
+version           = "0.2.1"
 license           = "Apache-2.0"
 description       = "Portable display drivers (SSD1306 OLED framebuffer+text, HD44780 character LCD via I2C backpack) over Amalgame.Hal — one driver, runs on Raspberry Pi and future MCU backends."
 authors           = ["Bastien Mouget"]
