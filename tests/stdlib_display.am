@@ -27,6 +27,13 @@ public class FakeClock implements Clock {
     public int Micros() { return 0 }
 }
 
+public class FakeSpi implements SpiBus {
+    private xfers: int
+    public FakeSpi() { this.xfers = 0 }
+    public List<int> Transfer(tx: List<int>) { this.xfers = this.xfers + 1; return tx }
+    public int Xfers() { return this.xfers }
+}
+
 public class Program {
     public static void Main(string[] args) {
         var fail: int = 0
@@ -50,6 +57,13 @@ public class Program {
         lcd.SetCursor(0, 0)
         lcd.Print("Amalgame")
         if (lbus.Writes() > 0) { Console.WriteLine("[PASS] lcd1602 init + print (" + String_FromInt(lbus.Writes()) + " writes)") } else { Console.WriteLine("[FAIL] lcd1602 no writes"); fail = fail + 1 }
+
+        // MAX7219 7-seg / matrix over SPI.
+        let sp: FakeSpi = new FakeSpi()
+        let m: Max7219 = new Max7219(sp)
+        m.SetIntensity(5)
+        m.SetRow(0, 0x3C)
+        if (sp.Xfers() > 0) { Console.WriteLine("[PASS] max7219 spi (" + String_FromInt(sp.Xfers()) + " words)") } else { Console.WriteLine("[FAIL] max7219 no spi"); fail = fail + 1 }
 
         if (fail == 0) { Console.WriteLine("display: all good") }
     }

@@ -289,3 +289,61 @@ public class Lcd1602 {
         let _w: bool = this.bus.WriteByte(this.addr, this.backlight)
     }
 }
+
+// MAX7219 — 8-digit 7-segment / 8×8 LED-matrix driver over SPI. Each
+// 16-bit word is (register, data); SpiBus.Transfer frames one word per
+// chip-select. Drive an 8×8 matrix with SetRow, or 7-seg digits with
+// decode mode + SetDigit.
+//
+//     let m = new Max7219(new Spi(0, 0))
+//     m.SetIntensity(7)
+//     m.SetRow(0, 0x3C)                 // matrix row bits
+public class Max7219 {
+    private spi: SpiBus
+
+    public Max7219(spi: SpiBus) {
+        this.spi = spi
+        this.Reg(0x0C, 0x01)   // shutdown → normal operation
+        this.Reg(0x0F, 0x00)   // display test off
+        this.Reg(0x09, 0x00)   // decode: none (raw segments / matrix)
+        this.Reg(0x0B, 0x07)   // scan limit: all 8 digits/rows
+        this.SetIntensity(7)
+        this.Clear()
+    }
+
+    private void Reg(addr: int, data: int) {
+        let w: List<int> = new List<int>()
+        w.Add(addr)
+        w.Add(data)
+        let _rx: List<int> = this.spi.Transfer(w)
+    }
+
+    public void SetIntensity(v: int) {
+        var x: int = v
+        if (x < 0)  { x = 0 }
+        if (x > 15) { x = 15 }
+        this.Reg(0x0A, x)
+    }
+
+    public void Clear() {
+        var r: int = 1
+        while (r <= 8) { this.Reg(r, 0); r = r + 1 }
+    }
+
+    // 8×8 matrix: set one row (0..7) to an 8-bit column pattern.
+    public void SetRow(row: int, bits: int) {
+        if (row < 0 || row > 7) { return }
+        this.Reg(row + 1, bits)
+    }
+
+    // 7-segment: turn on BCD decode for all digits, then SetDigit.
+    public void SetDecode(on: bool) {
+        if (on) { this.Reg(0x09, 0xFF) } else { this.Reg(0x09, 0x00) }
+    }
+    public void SetDigit(pos: int, value: int, dot: bool) {
+        if (pos < 0 || pos > 7) { return }
+        var v: int = value
+        if (dot) { v = v + 128 }   // segment DP
+        this.Reg(pos + 1, v)
+    }
+}
